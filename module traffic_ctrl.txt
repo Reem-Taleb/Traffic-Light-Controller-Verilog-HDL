@@ -1,0 +1,331 @@
+module traffic_ctrl(
+ input clk, rst,
+ input VS, PB,
+ output reg [2:0] light_main, // {RED,YEL,GRN}
+ output reg [2:0] light_side, // {RED,YEL,GRN}
+ output reg walk, // pedestrian walk signal {RED ,GRN} 
+ output [2:0] verf_state
+);
+
+	
+  reg [2:0] State,Next_state;
+  reg [7:0] Timer;
+  reg Ped_request,Side_request;
+  
+  
+  //State Encoding (by Binary)
+  parameter MG = 3'b000,MY = 3'b001,SG = 3'b010,SY = 3'b011,PG = 3'b100,ALLRED = 3'b101;
+   
+   always @ (posedge clk or negedge rst)begin
+	   if (~rst)begin 
+		   State <= MG;  //Initialize to state MG
+		   Timer <= 0;
+		   Ped_request <= 0;
+		   Side_request <= 0;
+	   end 
+	   
+   else begin
+	   State <= Next_state;
+	   if (State != Next_state)
+		   Timer <= 0;
+	   else
+		   Timer <= Timer + 8'b 1;
+	   //Update requset Flags
+	   if (PB)
+		   Ped_request <= 1;
+	   if (VS)
+		   Side_request <=1;
+		   
+	   //Clear flags when request is served
+	   if (Next_state == PG) 
+		   Ped_request <= 0;
+	   if (Next_state == SG)
+		   Side_request <= 0;
+	   end
+	   end
+	   //Next State Logic
+	   always @ (*)begin 
+		   Next_state = State;		//Clock operations
+		   case(State)
+			   MG: if (Timer >= 60 && (Ped_request || Side_request))
+				      Next_state = MY; //Yellow Main before Side/Pedestrain Green
+			  
+			   MY: if (Timer >= 5) //Time for Yellow state on Main until chang to Red 
+				      Next_state = ALLRED; 
+			  	 
+			  /*ALLRED: begin
+				  if (Ped_request)
+					  Next_state = PG;
+				  else if (Side_request)
+					  Next_state = SG;
+				  else
+					  Next_state = MG;
+			  end*/
+			  ALLRED: begin
+				  if (Side_request)
+					  Next_state = SG;
+				  else if (Ped_request)
+					  Next_state = PG;
+				  else
+					  Next_state = MG;
+			  end
+			   
+			  SG: if (Timer >= 40) //Time for Green state on Side until change to Yellow  
+					  Next_state = SY;	
+			
+			  SY: if (Timer >= 5)  //Time for Yellow state on Side until change to Red 
+					  Next_state = ALLRED;
+			  	
+			
+			   PG: if (Timer >= 40)//Time for Green state on pedestrain until change to Red 
+					   Next_state = ALLRED;
+			   
+			   default : Next_state = MG; //Default state
+		   endcase
+	end
+	
+	//Output Logic
+	always @ (*)begin
+		
+		//Fail_safe Defaults
+		light_main = 3'b100; //RED
+		light_side = 3'b100; //RED
+		walk = 0;
+		
+		case (State) 
+			MG: light_main = 3'b001;//Green Main 
+		    MY: light_main = 3'b010; //Yellow Main
+		    SG: begin 
+			    light_main = 3'b100; //Red Main
+		        light_side = 3'b001; //Green Side
+		    end 
+		    SY: begin 
+		        light_main = 3'b100; //Red Main
+		        light_side = 3'b010;  //Yellow Side
+		    end 
+		    PG:begin 
+		        light_main = 3'b100; //Red Main
+		        light_side = 3'b100; //Red Side
+		        walk = 1; 		 //Pedestrain Green    /*for wrong (error seniroes):walk = 0;*/
+		     end 
+		    ALLRED: begin 
+		            light_main = 3'b100; //Red Main
+		            light_side = 3'b100; //Red Side
+		            walk = 0; 		  // Pedestrain Red
+		    end 
+	   endcase 
+   end 
+   
+   assign verf_state = State;
+endmodule
+				
+			
+module traffic_ctrl_ref(mode,light_main,light_side,walk);
+	
+	input [2:0] mode;
+	output reg [2:0] light_main,light_side;
+	output reg walk;
+	
+	
+	always @(*)begin
+		
+		case(mode)
+			3'b000:begin
+				light_main = 3'b001;
+				light_side = 3'b100;
+				walk = 1'b0;
+			end
+			
+			3'b001:begin
+				light_main = 3'b010;
+				light_side = 3'b100;
+				walk = 1'b0;
+			end
+			
+			3'b010:begin
+				light_main = 3'b100;
+				light_side = 3'b001;
+				walk = 1'b0;
+			end	
+			
+			3'b011:begin
+				light_main = 3'b100;
+				light_side = 3'b010;
+				walk = 1'b0;
+			end	 
+			
+			3'b100:begin
+				light_main = 3'b100;
+				light_side = 3'b100;
+				walk = 1'b1;
+			end	
+			
+			3'b101:begin
+				light_main = 3'b100;
+				light_side = 3'b100;
+				walk = 1'b0;
+			end
+		endcase
+	 end
+  
+endmodule
+			
+		
+						
+	
+			
+module traffic_ctrl_tb;
+	
+	//TestBench
+	reg clk,rst,VS,PB;
+	wire [2:0] light_main;
+	wire [2:0] light_side;
+	wire walk; 
+	wire [2:0] TC_State;
+	
+	wire [2:0] ref_light_main;
+	wire [2:0] ref_light_side;
+	wire ref_walk;
+	
+	reg prev_VS, prev_PB;
+	reg [2:0] prev_state;
+
+	
+	parameter MGT = 60,SGT = 40,PGT = 40,YT = 5,ART = 5;
+	
+	
+	//Instantiate of traffic controller & Refference traffic controller
+	traffic_ctrl TC (.clk(clk),.rst(rst),.VS(VS),.PB(PB),.light_main(light_main),.light_side(light_side),.walk(walk),.verf_state(TC_State));
+	traffic_ctrl_ref TCREF (.mode(TC_State),.light_main(ref_light_main),.light_side(ref_light_side),.walk(ref_walk));
+	
+	//clk generation
+	initial clk = 0;
+	always #5 clk = ~clk;
+	
+	//Test Cases
+	initial begin
+			//Initialize input
+			rst = 0;VS = 0; PB = 0;
+			repeat(5) #10;
+			rst = 1;  //check if reset work correct
+				
+			//with no side or pedestrain (Just Main Green)
+			repeat(MGT + 10) #10;
+			
+			//pedestrain presses button
+			PB = 1;
+			repeat(2) #10;   //Short press
+			PB = 0;				
+			
+			repeat(MGT) #10;//MG(60) 
+			repeat(YT) #10;//Main must change to Yellow State
+			repeat(ART) #10;//must Pass to ALLRED State 
+			repeat(PGT) #10;//PG must stay Green 40 cycles
+			
+			
+			//Vehicle side
+			VS = 1;
+			repeat(2)#10;
+			VS = 0;
+			
+			repeat(MGT) #10;//MG(60)
+			repeat(YT) #10;//Main must change to Yellow State
+			repeat(ART) #10;//must Pass to ALLRED State
+			repeat(SGT) #10;//SG must stay Green 40 cycles
+			
+			
+			//PB & VS together: Pedestrain must go first,the side 
+			VS = 1;
+			PB = 1;
+			repeat(2)#10;
+			PB = 0;
+			VS = 0;
+			
+			repeat(MGT)#10;//MG(60) + MY + ALLRED
+			repeat(YT)#10;//Main must change to Yellow State
+			repeat(ART) #10;//must Pass to ALLRED State
+			repeat(PGT) #10;//we must First open pedestrians walk because it's the most priority 
+			repeat(ART) #10;//must Pass again to change our State to ALLRED State 
+			repeat(SGT) #10;//Seconed we open Vehicle side because it's the least priority 
+			
+			// Case: Pedestrian + Side request together
+			PB = 1;
+			VS = 1;
+			repeat(2) #10;  // short press
+			PB = 0;
+			VS = 0;
+
+			repeat(MGT) #10; // Main Green
+			repeat(YT) #10;  // Main Yellow
+			repeat(ART) #10; // ALL RED
+			repeat(PGT) #10; // Expected Pedestrian Green (Reference)
+			$finish;
+	end
+	
+	
+
+initial begin
+    prev_state = TC_State;
+end
+
+initial begin
+    prev_VS = 0;
+    prev_PB = 0;
+end	
+
+always @(posedge clk) begin
+    if (rst) begin
+        if (PB && !prev_PB)
+            $display("Time = %0t | Pedestrian Button PRESSED (PB = %b) ", $time,PB);
+        if (VS && !prev_VS) 
+            $display("Time = %0t | Side Vehicle REQUEST (VS = %b) ", $time,VS);
+
+        prev_PB <= PB;
+        prev_VS <= VS;
+    end
+end
+
+always @(posedge clk) begin
+    if (rst) begin 
+	    //Check MGT if reach 60
+        if (TC_State == 3'b000 && TC.Timer == 60)
+            $display("Time = %0t | Check: Main Green timer reached 60", $time);
+		//Check SGT if reach 40	
+		if (TC_State == 3'b010 && TC.Timer == 40)
+            $display("Time = %0t | Check: Side Green timer reached 40", $time);
+		//Check PGT if reach 40	
+		if (TC_State == 3'b100 && TC.Timer == 40)
+            $display("Time = %0t | Check: Pedestrian Green timer reached 40", $time);
+		//Check YT if reach 5	
+		if (TC_State == 3'b001 && TC.Timer == 5)
+            $display("Time = %0t | Check: Yellow timer reached 5", $time);
+		//Check ART if reach 5
+		if (TC_State == 3'b101 && TC.Timer == 5)
+			$display("Time = %0t | Check: ALL RED timer reached 5", $time);
+
+    end
+end
+
+always @(posedge clk) begin
+    if (rst && TC_State !== prev_state) begin
+        $display("Time = %0t | STATE CHANGE: %b ---> %b | Timer = %0d | States: Main = %b Side = %b Walk = %b",
+                  $time,prev_state,TC_State,TC.Timer,light_main,light_side,walk);
+        prev_state <= TC_State;
+    end
+end
+
+	
+    //Check RTL VS Reference
+always @(posedge clk)begin
+	if(rst)begin
+		if(light_main !== ref_light_main || light_side !== ref_light_side || walk !== ref_walk)begin
+			$display("Error At Time = %0t",$time); 
+			$display("State = %b",TC_State);
+			$display("RTL : Main = %b Side = %b Walk = %b",light_main,light_side,walk);
+			$display("REF : Main = %b Side = %b Walk = %b",ref_light_main,ref_light_side,ref_walk);
+			$stop;
+		end
+	end
+  end
+ 
+endmodule  
