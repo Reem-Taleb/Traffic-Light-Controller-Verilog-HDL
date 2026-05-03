@@ -10,14 +10,14 @@ The system controls traffic for:
 The controller is designed based on a formal specification, then verified using a self-checking testbench and a behavioral reference model.
 
 ## Key Features
-✅ FSM-based synchronous design
-✅ Moore Machine (outputs depend only on state)
-✅ Binary state encoding
-✅ Timer-controlled state transitions
-✅ Pedestrian priority handling
-✅ Request queuing mechanism
-✅ Self-checking verification system
-✅ Cycle-accurate comparison with reference model
+- ✅ FSM-based synchronous design
+- ✅ Moore Machine (outputs depend only on state)
+- ✅ Binary state encoding
+- ✅ Timer-controlled state transitions
+- ✅ Pedestrian priority handling
+- ✅ Request queuing mechanism
+- ✅ Self-checking verification system
+- ✅ Cycle-accurate comparison with reference model
 
 ## System Behavior
 Default State:
@@ -107,11 +107,11 @@ Instantiates both:
 - Automatically compares outputs every clock cycle
 
 - **Tested Scenarios**
-✅ Reset behavior
-✅ Normal operation (no requests)
-✅ Pedestrian-only request
-✅ Side-road-only request
-✅ Simultaneous requests (priority validation)
+- ✅ Reset behavior
+- ✅ Normal operation (no requests)
+- ✅ Pedestrian-only request
+- ✅ Side-road-only request
+- ✅ Simultaneous requests (priority validation)
 
 - **Error Detection**
 Any mismatch:
